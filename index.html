@@ -1,358 +1,1122 @@
-// VS검색 월별 지표 → 구글 시트 자동 기록
-// 배포: 확장 > Apps Script > 배포 > 새 배포 > 웹 앱 > 액세스: 모든 사용자
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VS검색 관리자</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+<style>
+:root {
+  --bg:#0a0a0b; --card:#161618; --border:#2a2a2d;
+  --accent:#4f8cff; --accent2:#36d399; --red:#ff6b6b;
+  --text:#e4e4e7; --sub:#8b8b95; --yellow:#ff9f43;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:'Pretendard',-apple-system,sans-serif;padding:24px 20px;}
+textarea:focus,input:focus,select:focus{outline:2px solid var(--accent);outline-offset:-2px;}
+textarea{resize:vertical;}
+.wrap{max-width:960px;margin:0 auto;}
 
-// ── 날짜/문자열 → "YYYY년 M월" 변환 ──────────────────
-function formatMonth(val) {
-  if (val instanceof Date) {
-    return val.getFullYear() + '년 ' + (val.getMonth() + 1) + '월';
-  }
-  const s = String(val).trim();
-  if (/^\d{4}년 \d{1,2}월$/.test(s)) return s;
-  const m = s.match(/^(\d{4})[년\-\/](\d{1,2})월?$/);
-  if (m) return m[1] + '년 ' + parseInt(m[2]) + '월';
-  return s;
+/* ── Header & Tabs ── */
+.page-header{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px;padding-bottom:0;border-bottom:1px solid var(--border);margin-bottom:0;}
+.page-title h1{font-size:20px;font-weight:700;letter-spacing:-.5px;}
+.page-title p{color:var(--sub);font-size:12px;margin-top:3px;}
+.tab-nav{display:flex;gap:2px;}
+.tab-btn{padding:9px 18px;border-radius:8px 8px 0 0;border:1px solid transparent;border-bottom:none;background:transparent;color:var(--sub);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;font-family:inherit;}
+.tab-btn:hover{color:var(--text);background:rgba(255,255,255,.04);}
+.tab-btn.active{background:var(--card);color:var(--text);border-color:var(--border);position:relative;}
+.tab-btn.active::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:1px;background:var(--card);}
+.tab-content{display:none;padding-top:20px;}
+.tab-content.active{display:block;}
+
+/* ── Cards ── */
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:14px;}
+.card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;}
+.card-title{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;}
+.badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;}
+
+/* ── Grids ── */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px;}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;}
+
+/* ── Stat cards ── */
+.stat-card{background:var(--bg);border-radius:8px;padding:12px 14px;}
+.stat-label{font-size:11px;color:var(--sub);margin-bottom:4px;}
+.stat-val{font-size:18px;font-weight:700;}
+.stat-diff{font-size:12px;margin-top:2px;}
+.stat-sub{font-size:11px;color:var(--sub);margin-top:2px;}
+.green{color:var(--accent2);} .red{color:var(--red);}
+
+/* ── Drop zone ── */
+.drop-zone{border:2px dashed var(--border);border-radius:10px;padding:24px 16px;text-align:center;cursor:pointer;transition:all .2s;}
+.drop-zone:hover,.drop-zone.over{border-color:var(--accent);background:rgba(79,140,255,.04);}
+.drop-zone input{display:none;}
+.drop-label{font-size:13px;font-weight:600;}
+.drop-sub{font-size:12px;color:var(--sub);margin-top:4px;}
+.drop-ok{font-size:12px;color:var(--accent2);margin-top:2px;}
+
+/* ── Textarea / paste ── */
+textarea.paste-area{width:100%;min-height:150px;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px;font-family:monospace;line-height:1.5;}
+.paste-result{margin-top:8px;padding:8px 12px;background:var(--bg);border-radius:8px;font-size:12px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;}
+
+/* ── Table ── */
+table{width:100%;border-collapse:collapse;}
+th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap;font-size:12px;}
+th{color:var(--sub);font-weight:500;background:var(--bg);position:sticky;top:0;z-index:1;}
+th:first-child,td:first-child{text-align:left;}
+tr.bold td{font-weight:700;}
+tr:last-child td{border-bottom:none;}
+tr.user-saved td:first-child::before{content:'● ';color:var(--accent);font-size:10px;}
+
+/* ── Buttons ── */
+.btn{padding:7px 16px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:13px;font-weight:600;cursor:pointer;transition:background .2s;font-family:inherit;}
+.btn:disabled{opacity:.5;cursor:not-allowed;}
+.btn.copied{background:var(--accent2);}
+.btn-sm{padding:5px 12px;font-size:12px;}
+
+/* ── Charts ── */
+.chart-wrap{position:relative;height:240px;margin-bottom:10px;}
+.chart-title{font-size:13px;font-weight:600;margin-bottom:10px;}
+code{background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px;}
+.hidden{display:none;}
+
+/* ── Form ── */
+select,input[type="text"],input[type="password"]{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:12px;font-family:inherit;}
+select{cursor:pointer;}
+.form-label{font-size:12px;font-weight:600;color:var(--sub);display:block;margin-bottom:6px;}
+.settings-row{display:flex;align-items:center;gap:8px;}
+.settings-row label{font-size:12px;color:var(--sub);white-space:nowrap;min-width:110px;}
+
+/* ── AI / Hints ── */
+.ai-box{background:var(--bg);border-radius:8px;padding:16px;font-size:13px;line-height:1.85;color:var(--text);border-left:3px solid var(--accent);margin-top:12px;white-space:pre-wrap;}
+.ai-box.loading{color:var(--sub);font-style:italic;}
+.hint-box{background:var(--bg);border-radius:8px;padding:14px 16px;margin-top:10px;font-size:12px;color:var(--sub);line-height:1.75;border-left:3px solid var(--yellow);}
+
+/* ── KPI card ── */
+.kpi-card{background:var(--bg);border-radius:10px;padding:14px;text-align:center;}
+.kpi-label{font-size:11px;color:var(--sub);margin-bottom:8px;}
+.kpi-prev{font-size:12px;color:var(--sub);margin-bottom:2px;}
+.kpi-arrow{font-size:10px;color:var(--border);margin-bottom:2px;}
+.kpi-cur{font-size:20px;font-weight:700;margin-bottom:4px;}
+.kpi-delta{font-size:13px;font-weight:600;}
+.kpi-pct{font-size:11px;color:var(--sub);margin-top:2px;}
+
+/* ── Legend dot ── */
+.dot-saved{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:3px;}
+.legend-text{font-size:11px;color:var(--sub);display:flex;align-items:center;gap:4px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- ═══ HEADER ═══ -->
+<div class="page-header">
+  <div class="page-title">
+    <h1>VS검색 관리자</h1>
+    <p>월별 지표 입력 · 히스토리 · AI 분석</p>
+  </div>
+  <nav class="tab-nav">
+    <button class="tab-btn active" data-tab="input"    onclick="switchTab('input')">📥 데이터 입력</button>
+    <button class="tab-btn"        data-tab="history"  onclick="switchTab('history')">📋 지표 히스토리</button>
+    <button class="tab-btn"        data-tab="analysis" onclick="switchTab('analysis')">🔍 분석 비교</button>
+  </nav>
+</div>
+
+<!-- ═══ TAB 1: 데이터 입력 ═══ -->
+<div id="tab-input" class="tab-content active">
+
+  <!-- 설정 -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="settings-row">
+      <label style="min-width:130px">⚙️ Apps Script URL</label>
+      <input id="scriptUrl" type="text" placeholder="https://script.google.com/macros/s/..." style="flex:1">
+      <button class="btn btn-sm" onclick="saveScriptUrl()" style="background:var(--border);color:var(--text);white-space:nowrap">저장</button>
+    </div>
+    <p id="scriptUrlStatus" style="font-size:11px;color:var(--sub);margin-top:8px;margin-left:138px"></p>
+  </div>
+
+  <!-- STEP 1 -->
+  <div class="card">
+    <div class="card-head">
+      <div class="card-title"><span class="badge" style="background:var(--accent);color:#fff">STEP 1</span>PV Count 파일 업로드</div>
+    </div>
+    <div class="grid2">
+      <div class="drop-zone" id="prevDrop" onclick="document.getElementById('prevFile').click()">
+        <input type="file" id="prevFile" accept=".xlsx,.xls">
+        <div class="drop-label">📂 전월 파일</div>
+        <div class="drop-sub" id="prevStatus">클릭 또는 드래그</div>
+      </div>
+      <div class="drop-zone" id="curDrop" onclick="document.getElementById('curFile').click()">
+        <input type="file" id="curFile" accept=".xlsx,.xls">
+        <div class="drop-label">📊 당월 파일</div>
+        <div class="drop-sub" id="curStatus">클릭 또는 드래그</div>
+      </div>
+    </div>
+    <div class="grid3 hidden" id="pvSummary"></div>
+  </div>
+
+  <!-- CHART -->
+  <div class="card hidden" id="chartSection">
+    <div class="card-head"><div class="card-title">📈 PC / MO PV 일별 추이</div></div>
+    <div class="grid2">
+      <div>
+        <div class="chart-title" style="color:#60a5fa">PC PV</div>
+        <div class="chart-wrap"><canvas id="pcChart"></canvas></div>
+      </div>
+      <div>
+        <div class="chart-title" style="color:#f472b6">MO PV</div>
+        <div class="chart-wrap"><canvas id="moChart"></canvas></div>
+      </div>
+    </div>
+    <div id="barChartSection" class="hidden" style="margin-top:20px">
+      <div class="chart-title">전월 vs 당월 총합 비교</div>
+      <div style="position:relative;height:200px"><canvas id="barChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- STEP 2 -->
+  <div class="card">
+    <div class="card-head">
+      <div class="card-title"><span class="badge" style="background:var(--accent2);color:#000">STEP 2</span>저장 회원수 / 저장건수 붙여넣기</div>
+    </div>
+    <p style="font-size:12px;color:var(--sub);margin-bottom:12px;line-height:1.6">
+      DB에서 일별 데이터를 복사해서 붙여넣으세요. <code>2026-03-01	5</code> 형식. 합계/전체 행도 자동 인식.
+      <span id="prevRefLabel" style="color:var(--sub);margin-left:4px"></span>
+    </p>
+    <div class="grid2">
+      <div>
+        <label class="form-label">👤 회원수</label>
+        <textarea class="paste-area" id="membersInput" placeholder="2026-03-01&#9;5&#10;2026-03-02&#9;16&#10;...&#10;합계&#9;415&#10;저장된 전체 회원수&#9;9103"></textarea>
+        <div class="paste-result hidden" id="membersResult"></div>
+      </div>
+      <div>
+        <label class="form-label">📌 저장건수 (VS검색)</label>
+        <textarea class="paste-area" id="savesInput" placeholder="2026-03-01&#9;9&#10;2026-03-02&#9;21&#10;...&#10;합계&#9;581&#10;저장된 전체 VS검색수&#9;16718"></textarea>
+        <div class="paste-result hidden" id="savesResult"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 3 -->
+  <div class="card hidden" id="reportSection">
+    <div class="card-head">
+      <div class="card-title"><span class="badge" style="background:var(--yellow);color:#000">STEP 3</span>노션 보고용 결과</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn" id="copyBtn" onclick="copyReport()">📋 마크다운 복사</button>
+        <button class="btn" id="sheetBtn" onclick="sendToSheets()" style="background:#34a853">📊 저장하기</button>
+      </div>
+    </div>
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px">1. VS검색페이지 PV (PC/MO 구분, uxlog 기준)</div>
+    <div style="overflow-x:auto;margin-bottom:20px"><table id="pvTable"></table></div>
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px">2. VS검색 저장 회원수 및 저장 건수 (DB 기준)</div>
+    <div style="overflow-x:auto"><table id="msTable"></table></div>
+  </div>
+
+</div><!-- /tab-input -->
+
+<!-- ═══ TAB 2: 지표 히스토리 ═══ -->
+<div id="tab-history" class="tab-content">
+
+  <div class="card">
+    <div class="card-head">
+      <div class="card-title">📋 전체 월별 지표</div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div class="legend-text"><span class="dot-saved"></span>● = 직접 저장한 데이터</div>
+        <button class="btn btn-sm" onclick="hardRefreshHistory()" style="background:var(--border);color:var(--text)">🔄 새로고침</button>
+        <span id="syncStatus" style="font-size:11px;color:var(--sub)"></span>
+      </div>
+    </div>
+    <div style="overflow-x:auto;max-height:420px;overflow-y:auto;">
+      <table id="historyTable"></table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><div class="card-title">📈 장기 추이 (저장 회원수 · 저장건수 · PV합계)</div></div>
+    <div class="chart-wrap" style="height:320px"><canvas id="trendChart"></canvas></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><div class="card-title">🖥️ PC PV vs MO PV 추이</div></div>
+    <div class="chart-wrap" style="height:280px"><canvas id="pvCompChart"></canvas></div>
+  </div>
+
+</div><!-- /tab-history -->
+
+<!-- ═══ TAB 3: 분석 비교 ═══ -->
+<div id="tab-analysis" class="tab-content">
+
+  <div class="card">
+    <div class="card-head"><div class="card-title">🔍 비교 월 선택</div></div>
+    <div class="grid2">
+      <div>
+        <label class="form-label">기준월 (이전)</label>
+        <select id="prevMonthSel" onchange="renderAnalysis()" style="width:100%"></select>
+      </div>
+      <div>
+        <label class="form-label">비교월 (현재)</label>
+        <select id="curMonthSel" onchange="renderAnalysis()" style="width:100%"></select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><div class="card-title">📊 지표 비교</div></div>
+    <div class="kpi-grid" id="kpiCards"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="card-title">🤖 AI 인사이트</div>
+      <button class="btn" id="aiBtn" onclick="runAIAnalysis()">✨ AI 분석 실행</button>
+    </div>
+    <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:4px;">
+      <div class="settings-row" style="margin-bottom:6px;">
+        <label>Anthropic API Key</label>
+        <input id="apiKeyInput" type="password" placeholder="sk-ant-..." style="flex:1">
+        <button class="btn btn-sm" onclick="saveApiKey()" style="background:var(--border);color:var(--text)">저장</button>
+      </div>
+      <p style="font-size:11px;color:var(--sub)">API Key는 이 브라우저에만 저장됩니다. 없으면 아래 계절 힌트만 표시됩니다.</p>
+    </div>
+    <div id="aiResult" class="hidden"></div>
+    <div id="seasonalHints"></div>
+  </div>
+
+</div><!-- /tab-analysis -->
+
+</div><!-- /wrap -->
+<script>
+// ═══════════════════════════════════════
+// DATA
+// ═══════════════════════════════════════
+const HISTORY = [
+  {month:"2023-11월",members:327,saves:398,pcPvSum:137415,pcPvAvg:6246,moPvSum:null,moPvAvg:null},
+  {month:"2023-12월",members:375,saves:490,pcPvSum:168967,pcPvAvg:5451,moPvSum:null,moPvAvg:null},
+  {month:"2024-1월",members:463,saves:633,pcPvSum:201764,pcPvAvg:6509,moPvSum:22784,moPvAvg:3255},
+  {month:"2024-2월",members:520,saves:686,pcPvSum:178634,pcPvAvg:6160,moPvSum:102080,moPvAvg:3520},
+  {month:"2024-3월",members:588,saves:795,pcPvSum:182572,pcPvAvg:5889,moPvSum:101507,moPvAvg:3274},
+  {month:"2024-4월",members:490,saves:699,pcPvSum:165370,pcPvAvg:5512,moPvSum:88282,moPvAvg:2943},
+  {month:"2024-5월",members:465,saves:669,pcPvSum:167182,pcPvAvg:5393,moPvSum:95202,moPvAvg:3071},
+  {month:"2024-6월",members:397,saves:524,pcPvSum:150701,pcPvAvg:5023,moPvSum:91129,moPvAvg:3038},
+  {month:"2024-7월",members:444,saves:648,pcPvSum:163040,pcPvAvg:5259,moPvSum:95943,moPvAvg:3095},
+  {month:"2024-8월",members:493,saves:635,pcPvSum:152933,pcPvAvg:4933,moPvSum:97597,moPvAvg:3148},
+  {month:"2024-9월",members:421,saves:539,pcPvSum:138059,pcPvAvg:4602,moPvSum:64076,moPvAvg:2136},
+  {month:"2024-10월",members:424,saves:553,pcPvSum:148910,pcPvAvg:4804,moPvSum:58575,moPvAvg:1890},
+  {month:"2024-11월",members:464,saves:605,pcPvSum:174034,pcPvAvg:5801,moPvSum:67497,moPvAvg:2250},
+  {month:"2024-12월",members:428,saves:556,pcPvSum:149959,pcPvAvg:4837,moPvSum:59404,moPvAvg:1916},
+  {month:"2025-1월",members:487,saves:643,pcPvSum:170317,pcPvAvg:5494,moPvSum:76718,moPvAvg:2475},
+  {month:"2025-2월",members:537,saves:685,pcPvSum:194942,pcPvAvg:6962,moPvSum:72965,moPvAvg:2606},
+  {month:"2025-3월",members:491,saves:659,pcPvSum:172669,pcPvAvg:5570,moPvSum:74943,moPvAvg:2418},
+  {month:"2025-4월",members:429,saves:585,pcPvSum:161054,pcPvAvg:5368,moPvSum:67935,moPvAvg:2265},
+  {month:"2025-5월",members:551,saves:742,pcPvSum:191548,pcPvAvg:6179,moPvSum:84725,moPvAvg:2733},
+  {month:"2025-6월",members:469,saves:608,pcPvSum:194113,pcPvAvg:6470,moPvSum:109996,moPvAvg:3667},
+  {month:"2025-7월",members:538,saves:723,pcPvSum:232484,pcPvAvg:7499,moPvSum:194853,moPvAvg:6286},
+  {month:"2025-8월",members:463,saves:587,pcPvSum:236406,pcPvAvg:7626,moPvSum:243858,moPvAvg:7866},
+  {month:"2025-9월",members:466,saves:632,pcPvSum:244205,pcPvAvg:8140,moPvSum:249445,moPvAvg:8315},
+  {month:"2025-10월",members:405,saves:532,pcPvSum:260328,pcPvAvg:8398,moPvSum:269870,moPvAvg:8705},
+  {month:"2025-11월",members:411,saves:550,pcPvSum:262146,pcPvAvg:8738,moPvSum:232676,moPvAvg:7756},
+  {month:"2025-12월",members:378,saves:477,pcPvSum:244269,pcPvAvg:7880,moPvSum:245262,moPvAvg:7912},
+  {month:"2026-1월",members:454,saves:605,pcPvSum:272233,pcPvAvg:8782,moPvSum:381680,moPvAvg:12312},
+  {month:"2026-2월",members:385,saves:514,pcPvSum:272637,pcPvAvg:9737,moPvSum:269807,moPvAvg:9636},
+  {month:"2026-3월",members:415,saves:581,pcPvSum:222959,pcPvAvg:7192,moPvSum:300948,moPvAvg:9708},
+];
+
+const SEASONAL_HINTS = {
+  1:"1월은 신년 초반 트래픽 정상화 시기입니다. 설 연휴가 포함된 경우 연휴 기간 트래픽이 감소하는 경향이 있으며, 설 이후 급격히 회복되는 패턴을 보입니다.",
+  2:"2월은 설 연휴 영향으로 전반적인 트래픽 감소가 일반적입니다. 졸업·입학 시즌 준비로 특정 카테고리 검색이 증가할 수 있습니다.",
+  3:"3월은 신학기 효과로 연중 트래픽이 높은 달 중 하나입니다. 새 학기 시작과 함께 검색 수요가 급증하는 패턴이 매년 반복됩니다.",
+  4:"4월은 신학기 특수가 마무리되면서 자연스러운 감소가 나타납니다. 공채 시즌과 맞물리면 특정 서비스 관련 검색이 증가할 수 있습니다.",
+  5:"5월은 어린이날·어버이날 등 가정의 달 이벤트로 특정 카테고리 상승이 기대됩니다. 황금연휴 기간에는 모바일 트래픽 비중이 높아집니다.",
+  6:"6월은 여름 준비 시즌 시작으로 계절 상품 검색이 증가하는 시기입니다. 기말고사 기간과 겹쳐 10대 트래픽 패턴에 변화가 올 수 있습니다.",
+  7:"7월은 여름방학 시작으로 모바일 트래픽 상승 경향이 있고, 직장인 PC 트래픽은 소폭 감소할 수 있습니다. 여행·레저 관련 검색 급증 시기입니다.",
+  8:"8월은 여름방학 피크 시즌입니다. PV는 높지만 실제 저장·전환율은 낮을 수 있으며, 봇 유입 여부를 PV 대비 회원수 비율로 확인하는 것이 좋습니다.",
+  9:"9월은 개학과 추석 연휴 영향이 혼재합니다. 추석 연휴 기간 트래픽 급감에 주의하고, 연휴 전후 반등 패턴을 확인하세요.",
+  10:"10월은 추석 연휴 종료 후 트래픽이 정상화됩니다. 가을 시즌 상품 검색 증가와 함께 저장 건수도 회복되는 경향이 있습니다.",
+  11:"11월은 수능 이후 트래픽 변화가 나타납니다. 수험생 관련 검색이 감소하고, 연말 준비 검색이 시작되는 시기입니다.",
+  12:"12월은 연말·크리스마스 이벤트로 트래픽이 높지만, 연말 마지막 주에 급격한 감소가 나타나는 패턴이 일반적입니다.",
+};
+
+let prevPv=null, curPv=null;
+let pcChartInst=null, moChartInst=null, barChartInst=null, trendChartInst=null, pvCompChartInst=null;
+
+// ═══════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════
+const fmt = n => (n==null||isNaN(n)) ? "-" : Number(n).toLocaleString();
+const toNum = v => (v===''||v==null||v===undefined) ? null : (isNaN(Number(v)) ? null : Number(v));
+const signFmt = n => (n==null||isNaN(n)) ? "-" : (n>0?"+":"") + Number(n).toLocaleString();
+const pctStr = (c,p) => (!p||p===0) ? "-" : ((c-p)/p*100).toFixed(1).replace(/^([^-])/,"+$1")+"%";
+const toMonthStr = l => l ? l.slice(0,4)+"년 "+parseInt(l.slice(5,7))+"월" : "";
+
+function normalizeMonth(m) {
+  if (!m) return '';
+  if (m.includes('년')) return m.replace(/\s+/g,' ').trim();
+  const r = m.match(/^(\d{4})-(\d+)월$/);
+  return r ? `${r[1]}년 ${parseInt(r[2])}월` : m;
+}
+function monthSortKey(m) {
+  const r = normalizeMonth(m).match(/(\d{4})년\s*(\d+)월/);
+  return r ? parseInt(r[1])*100+parseInt(r[2]) : 0;
+}
+function getMonthNum(m) {
+  const r = normalizeMonth(m).match(/\d{4}년\s*(\d+)월/);
+  return r ? parseInt(r[1]) : 0;
 }
 
-// ── 대상 스프레드시트 ID ──
-var TARGET_SS_ID = '1jucLcknh8EmdMKP3uUP_ZRezCqBg_QWvPMmGrDJFodY';
+// ═══════════════════════════════════════
+// LOCAL HISTORY
+// ═══════════════════════════════════════
+// ── JSONP 방식으로 구글 시트 읽기 (CORS 우회) ──
+function fetchJSONP(url) {
+  return new Promise((resolve, reject) => {
+    const cbName = '_gs_cb_' + Date.now();
+    const timer = setTimeout(() => { cleanup(); reject(new Error('timeout')); }, 12000);
+    function cleanup() {
+      clearTimeout(timer); delete window[cbName];
+      const s = document.getElementById(cbName); if (s) s.remove();
+    }
+    window[cbName] = (data) => { cleanup(); resolve(data); };
+    const script = document.createElement('script');
+    script.id = cbName;
+    script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cbName;
+    script.onerror = () => { cleanup(); reject(new Error('로드 실패')); };
+    document.head.appendChild(script);
+  });
+}
 
-// ── 업무용 새 스프레드시트 ID ──
-var WORK_SS_ID = '1biD7EGZwW9GeYeChe6tqnCtmahaoFqnh8qzQFni6TU4';
-
-// ── 데이터 저장 (저장하기 버튼) ──────────────────────
-function doPost(e) {
+async function syncFromSheets() {
+  const url = localStorage.getItem('appsScriptUrl');
+  if (!url) return false;
   try {
-    const data = JSON.parse(e.postData.contents);
-    const ss = SpreadsheetApp.openById(TARGET_SS_ID);
-
-    let sheet = ss.getSheetByName("월별지표");
-    if (!sheet) {
-      sheet = ss.insertSheet("월별지표");
-      sheet.appendRow(["월","PV합계","PC PV합계","PC PV일평균","MO PV합계","MO PV일평균","저장회원수","저장건수","기록일시"]);
-      const header = sheet.getRange(1,1,1,9);
-      header.setBackground("#4f8cff"); header.setFontColor("#ffffff"); header.setFontWeight("bold");
-    }
-
-    const allVals = sheet.getDataRange().getValues();
-    let targetRow = -1;
-    for (let i = 1; i < allVals.length; i++) {
-      if (String(allVals[i][0]) === String(data.month)) { targetRow = i + 1; break; }
-    }
-    const row = [data.month, data.pvTotal, data.pcPvSum, data.pcPvAvg, data.moPvSum, data.moPvAvg, data.members, data.saves, new Date().toLocaleString("ko-KR")];
-    if (targetRow > 0) { sheet.getRange(targetRow,1,1,9).setValues([row]); } else { sheet.appendRow(row); }
-
-    // ── 업무용 새 스프레드시트 저장 (탭 분리) ──
-    try {
-      var workSs = SpreadsheetApp.openById(WORK_SS_ID);
-      var now = new Date().toLocaleString("ko-KR");
-
-      // ① PV지표 탭
-      var pvSheet = workSs.getSheetByName("PV지표");
-      if (!pvSheet) {
-        pvSheet = workSs.insertSheet("PV지표");
-        var pvHeader = pvSheet.getRange(1,1,1,8);
-        pvHeader.setValues([["월","PC PV 합계","PC PV 전월비교","PC PV 일평균","MO PV 합계","MO PV 전월비교","MO PV 일평균","기록일시"]]);
-        pvHeader.setBackground("#4f8cff"); pvHeader.setFontColor("#ffffff"); pvHeader.setFontWeight("bold");
-      }
-
-      // 이전 달 PV 값 가져오기 (전월비교 계산용)
-      var pvAllVals = pvSheet.getDataRange().getValues();
-      var prevPcPv = null, prevMoPv = null;
-      if (pvAllVals.length > 1) {
-        var lastPvRow = pvAllVals[pvAllVals.length - 1];
-        prevPcPv = lastPvRow[1] !== "" ? Number(lastPvRow[1]) : null;
-        prevMoPv = lastPvRow[4] !== "" ? Number(lastPvRow[4]) : null;
-      }
-      var pcDiff = (prevPcPv && data.pcPvSum) ? data.pcPvSum - prevPcPv : "";
-      var moDiff = (prevMoPv && data.moPvSum) ? data.moPvSum - prevMoPv : "";
-
-      var pvRow = [data.month, data.pcPvSum||"", pcDiff, data.pcPvAvg||"", data.moPvSum||"", moDiff, data.moPvAvg||"", now];
-      var pvVals = pvSheet.getDataRange().getValues();
-      var pvTargetRow = -1;
-      for (var i = 1; i < pvVals.length; i++) {
-        if (String(pvVals[i][0]) === String(data.month)) { pvTargetRow = i + 1; break; }
-      }
-      if (pvTargetRow > 0) {
-        pvSheet.getRange(pvTargetRow,1,1,8).setValues([pvRow]);
-        pvSheet.getRange(pvTargetRow,2,1,6).setNumberFormat("#,##0");
-      } else {
-        pvSheet.appendRow(pvRow);
-        var newPvRow = pvSheet.getLastRow();
-        pvSheet.getRange(newPvRow,2,1,6).setNumberFormat("#,##0");
-      }
-
-      // ② VS저장지표 탭
-      var vsSheet = workSs.getSheetByName("VS저장지표");
-      if (!vsSheet) {
-        vsSheet = workSs.insertSheet("VS저장지표");
-        var vsHeader = vsSheet.getRange(1,1,1,8);
-        vsHeader.setValues([["월","저장회원수","전월비교","증감(%)","저장건수","전월비교","증감(%)","기록일시"]]);
-        vsHeader.setBackground("#34a853"); vsHeader.setFontColor("#ffffff"); vsHeader.setFontWeight("bold");
-      }
-
-      // 이전 달 VS 값 가져오기
-      var vsAllVals = vsSheet.getDataRange().getValues();
-      var prevMembers = null, prevSaves = null;
-      if (vsAllVals.length > 1) {
-        var lastVsRow = vsAllVals[vsAllVals.length - 1];
-        prevMembers = lastVsRow[1] !== "" ? Number(lastVsRow[1]) : null;
-        prevSaves   = lastVsRow[4] !== "" ? Number(lastVsRow[4]) : null;
-      }
-      var memDiff = (prevMembers && data.members) ? data.members - prevMembers : "";
-      var memPct  = (prevMembers && data.members) ? (data.members - prevMembers) / prevMembers : "";
-      var saveDiff = (prevSaves && data.saves) ? data.saves - prevSaves : "";
-      var savePct  = (prevSaves && data.saves) ? (data.saves - prevSaves) / prevSaves : "";
-
-      var vsRow = [data.month, data.members, memDiff, memPct, data.saves, saveDiff, savePct, now];
-      var vsVals = vsSheet.getDataRange().getValues();
-      var vsTargetRow = -1;
-      for (var j = 1; j < vsVals.length; j++) {
-        if (String(vsVals[j][0]) === String(data.month)) { vsTargetRow = j + 1; break; }
-      }
-      if (vsTargetRow > 0) {
-        vsSheet.getRange(vsTargetRow,1,1,8).setValues([vsRow]);
-        vsSheet.getRange(vsTargetRow,2,1,1).setNumberFormat("#,##0");
-        vsSheet.getRange(vsTargetRow,3,1,1).setNumberFormat("#,##0");
-        vsSheet.getRange(vsTargetRow,4,1,1).setNumberFormat("0%");
-        vsSheet.getRange(vsTargetRow,5,1,1).setNumberFormat("#,##0");
-        vsSheet.getRange(vsTargetRow,6,1,1).setNumberFormat("#,##0");
-        vsSheet.getRange(vsTargetRow,7,1,1).setNumberFormat("0%");
-      } else {
-        vsSheet.appendRow(vsRow);
-        var newVsRow = vsSheet.getLastRow();
-        vsSheet.getRange(newVsRow,2,1,1).setNumberFormat("#,##0");
-        vsSheet.getRange(newVsRow,3,1,1).setNumberFormat("#,##0");
-        vsSheet.getRange(newVsRow,4,1,1).setNumberFormat("0%");
-        vsSheet.getRange(newVsRow,5,1,1).setNumberFormat("#,##0");
-        vsSheet.getRange(newVsRow,6,1,1).setNumberFormat("#,##0");
-        vsSheet.getRange(newVsRow,7,1,1).setNumberFormat("0%");
-      }
-
-    } catch (workErr) {
-      console.log('업무 시트 저장 오류: ' + workErr.message);
-    }
-
-    return ContentService.createTextOutput(JSON.stringify({ok:true})).setMimeType(ContentService.MimeType.JSON);
-  } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ok:false,error:err.message})).setMimeType(ContentService.MimeType.JSON);
+    const raw = await fetchJSONP(url);
+    if (!Array.isArray(raw)) return false;
+    if (raw.length === 0) return true; // 연결 성공, 데이터 없음
+    const mapped = raw
+      .map(d => ({
+        month:   normalizeMonth(String(d.month || '')),
+        pvTotal: toNum(d.pvTotal), pcPvSum: toNum(d.pcPvSum), pcPvAvg: toNum(d.pcPvAvg),
+        moPvSum: toNum(d.moPvSum), moPvAvg: toNum(d.moPvAvg),
+        members: toNum(d.members), saves: toNum(d.saves),
+        savedAt: d.savedAt || '', isUserSaved: true,
+      }))
+      .filter(d => d.month);
+    localStorage.setItem('vsSearchHistory', JSON.stringify(mapped));
+    return true;
+  } catch(e) {
+    console.warn('시트 동기화 실패:', e.message);
+    return false;
   }
 }
 
-// ── 데이터 읽기 (히스토리 탭) ──────────────────────
-function doGet(e) {
-  try {
-    const cb = (e && e.parameter && e.parameter.callback) ? e.parameter.callback : null;
-    const ss = SpreadsheetApp.openById(TARGET_SS_ID);
+function saveToLocalHistory(obj) {
+  const key = normalizeMonth(obj.month);
+  const existing = JSON.parse(localStorage.getItem('vsSearchHistory')||'[]');
+  const filtered = existing.filter(e => normalizeMonth(e.month) !== key);
+  filtered.push({...obj, month: key});
+  localStorage.setItem('vsSearchHistory', JSON.stringify(filtered));
+}
 
-    const pvMap  = {};
-    const dbMap  = {};
+function getFullHistory() {
+  const saved = JSON.parse(localStorage.getItem('vsSearchHistory')||'[]');
+  const savedMap = {};
+  saved.forEach(e => { savedMap[normalizeMonth(e.month)] = {...e, isUserSaved:true}; });
 
-    const reportSheet = ss.getSheetByName("보고시트");
-    if (reportSheet && reportSheet.getLastRow() > 2) {
-      const rows = reportSheet.getRange(3, 1, reportSheet.getLastRow() - 2, 16).getValues();
-
-      function toN(v) {
-        if (v === '' || v === null || v === undefined) return null;
-        var n = Number(String(v).replace(/,/g, ''));
-        return (!isNaN(n) && n > 0) ? n : null;
-      }
-
-      rows.forEach(function(r) {
-        if (r[0] && (r[0] instanceof Date || /\d{4}/.test(String(r[0])))) {
-          var month = formatMonth(r[0]);
-          var pc = toN(r[1]);
-          var mo = toN(r[4]);
-          if (pc !== null || mo !== null) {
-            pvMap[month] = { pcPvSum: pc, pcPvAvg: toN(r[3]), moPvSum: mo, moPvAvg: toN(r[6]) };
-          }
-        }
-        if (r[9] && (r[9] instanceof Date || /\d{4}/.test(String(r[9])))) {
-          var members = toN(r[10]);
-          if (members !== null) {
-            var dbMonth = formatMonth(r[9]);
-            dbMap[dbMonth] = { members: members, saves: toN(r[13]) };
-          }
-        }
-      });
-    }
-
-    const allMonths = Array.from(new Set([...Object.keys(pvMap), ...Object.keys(dbMap)]));
-    allMonths.sort(function(a, b) {
-      const ma = a.match(/(\d{4})년 (\d+)월/), mb = b.match(/(\d{4})년 (\d+)월/);
-      if (!ma || !mb) return 0;
-      return (parseInt(ma[1]) * 100 + parseInt(ma[2])) - (parseInt(mb[1]) * 100 + parseInt(mb[2]));
-    });
-
-    const result = [];
-    const seen   = {};
-    allMonths.forEach(function(month) {
-      const pv = pvMap[month] || {};
-      const db = dbMap[month] || {};
-      const pc = pv.pcPvSum != null ? pv.pcPvSum : null;
-      const mo = pv.moPvSum != null ? pv.moPvSum : null;
-      const entry = {
-        month,
-        pvTotal: (pc != null && mo != null) ? pc + mo : null,
-        pcPvSum: pc, pcPvAvg: pv.pcPvAvg != null ? pv.pcPvAvg : null,
-        moPvSum: mo, moPvAvg: pv.moPvAvg != null ? pv.moPvAvg : null,
-        members: db.members != null ? db.members : null,
-        saves:   db.saves   != null ? db.saves   : null,
+  const result = HISTORY.map(h => {
+    const norm = normalizeMonth(h.month);
+    const hPcPv = h.pcPvSum ?? null;
+    const hMoPv = h.moPvSum ?? null;
+    const hPvTotal = (hPcPv != null && hMoPv != null) ? hPcPv + hMoPv : (hPcPv ?? hMoPv);
+    if (savedMap[norm]) {
+      const s = savedMap[norm];
+      // 구글 시트 값이 이상하게 작으면(보고시트 데이터가 HISTORY보다 훨씬 크면) HISTORY 우선
+      const useHistPv = hPcPv != null && (s.pcPvSum == null || s.pcPvSum < hPcPv * 0.5);
+      return {
+        ...s, month: norm,
+        members: s.members ?? h.members,
+        saves:   s.saves   ?? h.saves,
+        pcPvSum: useHistPv ? hPcPv   : (s.pcPvSum ?? hPcPv),
+        pcPvAvg: useHistPv ? (h.pcPvAvg ?? null) : (s.pcPvAvg ?? h.pcPvAvg ?? null),
+        moPvSum: useHistPv ? hMoPv   : (s.moPvSum ?? hMoPv),
+        moPvAvg: useHistPv ? (h.moPvAvg ?? null) : (s.moPvAvg ?? h.moPvAvg ?? null),
+        pvTotal: useHistPv ? hPvTotal : (s.pvTotal ?? hPvTotal),
       };
-      seen[month] = result.length;
-      result.push(entry);
-    });
-
-    var monthSheet = ss.getSheetByName("월별지표");
-    if (monthSheet && monthSheet.getLastRow() > 1) {
-      function toN2(v) {
-        if (v === '' || v === null || v === undefined) return null;
-        var n = Number(String(v).replace(/,/g, ''));
-        return (!isNaN(n) && n > 0) ? n : null;
-      }
-      var mRows = monthSheet.getRange(2, 1, monthSheet.getLastRow() - 1, 9).getValues();
-      mRows.filter(function(r) { return r[0]; }).forEach(function(r) {
-        var month = formatMonth(r[0]);
-        var mEntry = {
-          month:   month,
-          pvTotal: toN2(r[1]), pcPvSum: toN2(r[2]), pcPvAvg: toN2(r[3]),
-          moPvSum: toN2(r[4]), moPvAvg: toN2(r[5]), members: toN2(r[6]), saves: toN2(r[7]),
-        };
-        if (seen[month] !== undefined) {
-          var existing = result[seen[month]];
-          if (existing.pcPvSum == null && mEntry.pcPvSum != null) {
-            result[seen[month]] = {
-              month, pvTotal: mEntry.pvTotal, pcPvSum: mEntry.pcPvSum, pcPvAvg: mEntry.pcPvAvg,
-              moPvSum: mEntry.moPvSum, moPvAvg: mEntry.moPvAvg,
-              members: existing.members != null ? existing.members : mEntry.members,
-              saves:   existing.saves   != null ? existing.saves   : mEntry.saves,
-            };
-          }
-        } else {
-          seen[month] = result.length;
-          result.push(mEntry);
-        }
-      });
     }
+    return {month:norm, members:h.members, saves:h.saves,
+      pvTotal:hPvTotal, pcPvSum:hPcPv, pcPvAvg:h.pcPvAvg??null,
+      moPvSum:hMoPv, moPvAvg:h.moPvAvg??null, isUserSaved:false};
+  });
 
-    const json = JSON.stringify(result);
-    return ContentService.createTextOutput(cb ? cb + '(' + json + ')' : json)
-      .setMimeType(cb ? ContentService.MimeType.JAVASCRIPT : ContentService.MimeType.JSON);
+  saved.forEach(e => {
+    const norm = normalizeMonth(e.month);
+    if (!HISTORY.find(h => normalizeMonth(h.month)===norm))
+      result.push({...e, month:norm, isUserSaved:true});
+  });
 
-  } catch (err) {
-    const errJson = JSON.stringify({ error: err.message });
-    const cb = (e && e.parameter && e.parameter.callback) ? e.parameter.callback : null;
-    return ContentService.createTextOutput(cb ? cb + '(' + errJson + ')' : errJson)
-      .setMimeType(cb ? ContentService.MimeType.JAVASCRIPT : ContentService.MimeType.JSON);
+  result.sort((a,b) => monthSortKey(a.month)-monthSortKey(b.month));
+  return result;
+}
+
+// ═══════════════════════════════════════
+// TABS
+// ═══════════════════════════════════════
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab===tab));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+  if (tab==='history') renderHistory();
+  if (tab==='analysis') initAnalysis();
+}
+
+// ═══════════════════════════════════════
+// PV PROCESSING
+// ═══════════════════════════════════════
+function processPvData(rows) {
+  const dr = rows.filter(r => r[0]&&r[1]&&typeof r[2]==="number");
+  let pcT=0, moT=0; const days=new Set(), daily={};
+  dr.forEach(r => {
+    const d = r[0] instanceof Date ? r[0].toISOString().slice(0,10) : String(r[0]).slice(0,10);
+    const p = String(r[1]).toLowerCase(), c = Number(r[2]);
+    days.add(d);
+    if (!daily[d]) daily[d]={date:d,pc:0,mo:0};
+    if (p==="pc") { pcT+=c; daily[d].pc=c; } else { moT+=c; daily[d].mo=c; }
+  });
+  const n=days.size, sorted=[...days].sort();
+  return {
+    pcPvSum:pcT, moPvSum:moT, pvTotal:pcT+moT,
+    pcPvAvg:n?Math.round(pcT/n):0, moPvAvg:n?Math.round(moT/n):0,
+    numDays:n, dailyArr:sorted.map(d=>({...daily[d],total:daily[d].pc+daily[d].mo})),
+    monthLabel:sorted[0]?.slice(0,7)||"",
+  };
+}
+
+function loadFile(file) {
+  return new Promise(res => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const wb = XLSX.read(e.target.result,{type:"array"});
+      const sn = wb.SheetNames.find(s=>s!=="Sheet1")||wb.SheetNames[0];
+      res(XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1}));
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function parsePasted(text) {
+  if (!text.trim()) return null;
+  const lines = text.trim().split("\n").map(l=>l.trim()).filter(Boolean);
+  const daily=[]; let total=null, cum=null;
+  for (const line of lines) {
+    const parts = line.split(/\t+|\s{2,}/);
+    if (parts.length<2) continue;
+    const label=parts[0].trim(), val=parseInt(parts[parts.length-1].replace(/,/g,""));
+    if (isNaN(val)) continue;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(label)) daily.push({date:label,count:val});
+    else if (/합계/i.test(label)) total=val;
+    else if (/전체|누적/i.test(label)) cum=val;
+  }
+  if (daily.length===0&&total==null) return null;
+  return {daily, total:total??daily.reduce((s,d)=>s+d.count,0), cumulative:cum, count:daily.length};
+}
+
+function getPrevMS() {
+  if (!prevPv) return HISTORY[HISTORY.length-1];
+  const key = prevPv.monthLabel.slice(0,4)+"-"+parseInt(prevPv.monthLabel.slice(5,7))+"월";
+  return HISTORY.find(h=>h.month===key)||HISTORY[HISTORY.length-1];
+}
+
+// ═══════════════════════════════════════
+// FILE DROP
+// ═══════════════════════════════════════
+function setupDrop(dropId,inputId,statusId,setter) {
+  const drop=document.getElementById(dropId), input=document.getElementById(inputId);
+  ['dragover','dragenter'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('over');}));
+  ['dragleave','drop'].forEach(e=>drop.addEventListener(e,()=>drop.classList.remove('over')));
+  drop.addEventListener('drop',async ev=>{ev.preventDefault();const f=ev.dataTransfer.files[0];if(f)await handleFileLoad(f,setter,statusId);});
+  input.addEventListener('change',async e=>{const f=e.target.files[0];if(f)await handleFileLoad(f,setter,statusId);e.target.value="";});
+}
+
+async function handleFileLoad(file,setter,statusId) {
+  const rows=await loadFile(file), result=processPvData(rows);
+  setter(result);
+  document.getElementById(statusId).innerHTML=`<span style="font-size:12px;color:var(--sub)">${file.name}</span><br><span class="drop-ok">✓ ${result.numDays}일 · PV ${fmt(result.pvTotal)}</span>`;
+  render();
+}
+
+setupDrop("prevDrop","prevFile","prevStatus",r=>{prevPv=r;});
+setupDrop("curDrop","curFile","curStatus",r=>{curPv=r;});
+document.getElementById("membersInput").addEventListener("input",render);
+document.getElementById("savesInput").addEventListener("input",render);
+
+// ═══════════════════════════════════════
+// TAB1 CHARTS
+// ═══════════════════════════════════════
+const baseChartOpts = () => ({
+  responsive:true, maintainAspectRatio:false,
+  interaction:{mode:'index',intersect:false},
+  plugins:{legend:{labels:{color:'#999',font:{size:11}}}},
+  scales:{
+    x:{ticks:{color:'#666',font:{size:10}},grid:{color:'#1e1e1e'}},
+    y:{ticks:{color:'#666',font:{size:10},callback:v=>(v/1000).toFixed(0)+'k'},grid:{color:'#1e1e1e'}},
+  }
+});
+
+function renderCharts() {
+  const section=document.getElementById("chartSection");
+  if (!prevPv&&!curPv){section.classList.add("hidden");return;}
+  section.classList.remove("hidden");
+
+  const allDays=new Set();
+  if(prevPv) prevPv.dailyArr.forEach(d=>allDays.add(d.date.slice(8,10)));
+  if(curPv)  curPv.dailyArr.forEach(d=>allDays.add(d.date.slice(8,10)));
+  const days=[...allDays].sort();
+
+  const getVals=(arr,key)=>{const map={};if(arr)arr.forEach(d=>map[d.date.slice(8,10)]=d[key]);return days.map(d=>map[d]??null);};
+  const pL=prevPv?toMonthStr(prevPv.monthLabel):"";
+  const cL=curPv?toMonthStr(curPv.monthLabel):"";
+
+  const mkDS=(key,color)=>{const ds=[];
+    if(prevPv) ds.push({label:pL,data:getVals(prevPv.dailyArr,key),borderColor:'#6b7280',backgroundColor:'rgba(107,114,128,.08)',borderWidth:1.5,fill:true,tension:.3,pointRadius:0});
+    if(curPv)  ds.push({label:cL,data:getVals(curPv.dailyArr,key),borderColor:color,backgroundColor:color+'15',borderWidth:2,fill:true,tension:.3,pointRadius:0});
+    return ds;};
+
+  if(pcChartInst) pcChartInst.destroy();
+  pcChartInst=new Chart(document.getElementById("pcChart"),{type:'line',data:{labels:days,datasets:mkDS('pc','#60a5fa')},options:baseChartOpts()});
+  if(moChartInst) moChartInst.destroy();
+  moChartInst=new Chart(document.getElementById("moChart"),{type:'line',data:{labels:days,datasets:mkDS('mo','#f472b6')},options:baseChartOpts()});
+
+  const barSec=document.getElementById("barChartSection");
+  if(prevPv&&curPv){
+    barSec.classList.remove("hidden");
+    if(barChartInst) barChartInst.destroy();
+    barChartInst=new Chart(document.getElementById("barChart"),{
+      type:'bar',
+      data:{labels:['PC PV','MO PV','PV 합계'],datasets:[
+        {label:pL,data:[prevPv.pcPvSum,prevPv.moPvSum,prevPv.pvTotal],backgroundColor:'#6b7280',borderRadius:4},
+        {label:cL,data:[curPv.pcPvSum,curPv.moPvSum,curPv.pvTotal],backgroundColor:'#4f8cff',borderRadius:4},
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#999',font:{size:11}}}},scales:{x:{ticks:{color:'#999'},grid:{color:'#1e1e1e'}},y:{ticks:{color:'#666',callback:v=>(v/1000).toFixed(0)+'k'},grid:{color:'#1e1e1e'}}}}
+    });
+  } else { barSec.classList.add("hidden"); }
+}
+
+// ═══════════════════════════════════════
+// TAB1 RENDER
+// ═══════════════════════════════════════
+function render() {
+  const prevMS=getPrevMS();
+  const membersData=parsePasted(document.getElementById("membersInput").value);
+  const savesData=parsePasted(document.getElementById("savesInput").value);
+
+  const sumEl=document.getElementById("pvSummary");
+  if(curPv){
+    sumEl.classList.remove("hidden");
+    const items=[
+      {label:"PV 합계",cur:curPv.pvTotal,prev:prevPv?.pvTotal},
+      {label:"PC PV",cur:curPv.pcPvSum,prev:prevPv?.pcPvSum,avg:curPv.pcPvAvg},
+      {label:"MO PV",cur:curPv.moPvSum,prev:prevPv?.moPvSum,avg:curPv.moPvAvg},
+    ];
+    sumEl.innerHTML=items.map(it=>{
+      const d=it.prev!=null?it.cur-it.prev:null;
+      return `<div class="stat-card">
+        <div class="stat-label">${it.label}</div>
+        <div class="stat-val">${fmt(it.cur)}</div>
+        ${d!=null?`<div class="stat-diff ${d>=0?'green':'red'}">전월 ${signFmt(d)} (${pctStr(it.cur,it.prev)})</div>`:''}
+        ${it.avg!=null?`<div class="stat-sub">일평균 ${fmt(it.avg)}</div>`:''}
+      </div>`;
+    }).join("");
+  } else { sumEl.classList.add("hidden"); }
+
+  const mT=membersData?.total, sT=savesData?.total;
+  const mD=mT!=null?mT-prevMS.members:null, sD=sT!=null?sT-prevMS.saves:null;
+  renderPasteResult("membersResult",membersData,mD,`전월(${prevMS.members})`);
+  renderPasteResult("savesResult",savesData,sD,`전월(${prevMS.saves})`);
+  document.getElementById("prevRefLabel").textContent=`(전월 기준: ${normalizeMonth(prevMS.month)})`;
+  renderCharts();
+
+  const reportEl=document.getElementById("reportSection");
+  if(curPv){
+    reportEl.classList.remove("hidden");
+    const pMStr=prevPv?toMonthStr(prevPv.monthLabel):"", cMStr=toMonthStr(curPv.monthLabel);
+    const pcD=prevPv?curPv.pcPvSum-prevPv.pcPvSum:null, moD=prevPv?curPv.moPvSum-prevPv.moPvSum:null;
+
+    let pvH=`<thead><tr>${["날짜","PV 합계","PC PV 합계","PC PV 전월비교","PC PV 일평균","MO PV 합계","MO PV 전월비교","MO PV 일평균"].map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody>`;
+    if(prevPv) pvH+=`<tr><td>${pMStr}</td><td>${fmt(prevPv.pvTotal)}</td><td>${fmt(prevPv.pcPvSum)}</td><td></td><td>${fmt(prevPv.pcPvAvg)}</td><td>${fmt(prevPv.moPvSum)}</td><td></td><td>${fmt(prevPv.moPvAvg)}</td></tr>`;
+    pvH+=`<tr class="bold"><td>${cMStr}</td><td>${fmt(curPv.pvTotal)}</td><td>${fmt(curPv.pcPvSum)}</td>`;
+    pvH+=`<td class="${pcD!=null?(pcD>=0?'green':'red'):''}">${pcD!=null?signFmt(pcD):''}</td>`;
+    pvH+=`<td>${fmt(curPv.pcPvAvg)}</td><td>${fmt(curPv.moPvSum)}</td>`;
+    pvH+=`<td class="${moD!=null?(moD>=0?'green':'red'):''}">${moD!=null?signFmt(moD):''}</td>`;
+    pvH+=`<td>${fmt(curPv.moPvAvg)}</td></tr></tbody>`;
+    document.getElementById("pvTable").innerHTML=pvH;
+
+    let msH=`<thead><tr>${["날짜","저장 회원수","전월비교","저장건수","전월비교"].map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody>`;
+    msH+=`<tr><td>${normalizeMonth(prevMS.month)}</td><td>${fmt(prevMS.members)}</td><td></td><td>${fmt(prevMS.saves)}</td><td></td></tr>`;
+    msH+=`<tr class="bold"><td>${cMStr}</td>`;
+    msH+=`<td>${mT!=null?fmt(mT):'-'}</td><td class="${mD!=null?(mD>=0?'green':'red'):''}">${mD!=null?signFmt(mD):'-'}</td>`;
+    msH+=`<td>${sT!=null?fmt(sT):'-'}</td><td class="${sD!=null?(sD>=0?'green':'red'):''}">${sD!=null?signFmt(sD):'-'}</td>`;
+    msH+=`</tr></tbody>`;
+    document.getElementById("msTable").innerHTML=msH;
+  } else { reportEl.classList.add("hidden"); }
+}
+
+function renderPasteResult(id,data,diff,prevLabel) {
+  const el=document.getElementById(id);
+  if(!data){el.classList.add("hidden");return;}
+  el.classList.remove("hidden");
+  let h=`<span style="font-weight:600">합계: ${fmt(data.total)}</span>`;
+  if(data.count>0) h+=`<span style="color:var(--sub)">${data.count}일</span>`;
+  if(data.cumulative!=null) h+=`<span style="color:var(--sub)">누적: ${fmt(data.cumulative)}</span>`;
+  if(diff!=null) h+=`<span class="${diff>=0?'green':'red'}">${prevLabel} 대비 ${signFmt(diff)}</span>`;
+  el.innerHTML=h;
+}
+
+function copyReport() {
+  if(!curPv) return;
+  const prevMS=getPrevMS();
+  const membersData=parsePasted(document.getElementById("membersInput").value);
+  const savesData=parsePasted(document.getElementById("savesInput").value);
+  const pL=prevPv?toMonthStr(prevPv.monthLabel):"전월", cL=toMonthStr(curPv.monthLabel);
+  const pcD=prevPv?curPv.pcPvSum-prevPv.pcPvSum:null, moD=prevPv?curPv.moPvSum-prevPv.moPvSum:null;
+  const mT=membersData?.total, sT=savesData?.total;
+  const mD=mT!=null?mT-prevMS.members:null, sD=sT!=null?sT-prevMS.saves:null;
+
+  let r="### 1. VS검색페이지 PV (PC/MO 구분, uxlog 기준)\n\n";
+  r+="| 날짜 | PV 합계 | PC PV 합계 | PC PV 합계 전월비교 | PC PV 일평균 | MO PV 합계 | MO PV 합계 전월비교 | MO PV 일평균 |\n";
+  r+="|------|---------|-----------|-------------------|------------|-----------|-------------------|------------|\n";
+  if(prevPv) r+=`| ${pL} | ${fmt(prevPv.pvTotal)} | ${fmt(prevPv.pcPvSum)} | | ${fmt(prevPv.pcPvAvg)} | ${fmt(prevPv.moPvSum)} | | ${fmt(prevPv.moPvAvg)} |\n`;
+  r+=`| ${cL} | ${fmt(curPv.pvTotal)} | ${fmt(curPv.pcPvSum)} | ${pcD!=null?signFmt(pcD):''} | ${fmt(curPv.pcPvAvg)} | ${fmt(curPv.moPvSum)} | ${moD!=null?signFmt(moD):''} | ${fmt(curPv.moPvAvg)} |\n\n`;
+  r+="### 2. VS검색 저장 회원수 및 저장 건수 (DB 기준)\n\n";
+  r+="| 날짜 | 저장 회원수 | 저장 회원수 전월비교 | 저장건수 | 저장건수 전월비교 |\n";
+  r+="|------|-----------|-------------------|---------|----------------|\n";
+  r+=`| ${normalizeMonth(prevMS.month)} | ${fmt(prevMS.members)} | | ${fmt(prevMS.saves)} | |\n`;
+  r+=`| ${cL} | ${mT!=null?fmt(mT):''} | ${mD!=null?signFmt(mD):''} | ${sT!=null?fmt(sT):''} | ${sD!=null?signFmt(sD):''} |\n`;
+
+  navigator.clipboard.writeText(r);
+  const btn=document.getElementById("copyBtn");
+  btn.textContent="✓ 복사됨"; btn.classList.add("copied");
+  setTimeout(()=>{btn.textContent="📋 마크다운 복사";btn.classList.remove("copied");},2000);
+}
+
+// ═══════════════════════════════════════
+// SAVE (local + sheets)
+// ═══════════════════════════════════════
+async function sendToSheets() {
+  if(!curPv){alert('당월 PV 파일을 먼저 업로드하세요.');return;}
+  const url=document.getElementById('scriptUrl').value.trim();
+  const membersData=parsePasted(document.getElementById('membersInput').value);
+  const savesData=parsePasted(document.getElementById('savesInput').value);
+
+  const dataObj={
+    month:toMonthStr(curPv.monthLabel),
+    pvTotal:curPv.pvTotal, pcPvSum:curPv.pcPvSum, pcPvAvg:curPv.pcPvAvg,
+    moPvSum:curPv.moPvSum, moPvAvg:curPv.moPvAvg,
+    members:membersData?.total??null, saves:savesData?.total??null,
+    savedAt:new Date().toISOString(),
+  };
+
+  saveToLocalHistory(dataObj);
+
+  const btn=document.getElementById('sheetBtn');
+  if(!url){
+    btn.textContent='✓ 로컬 저장 완료'; btn.style.background='var(--accent2)'; btn.style.color='#000';
+    setTimeout(()=>{btn.textContent='📊 저장하기';btn.style.background='#34a853';btn.style.color='';},2500);
+    return;
+  }
+
+  localStorage.setItem('appsScriptUrl',url);
+  btn.textContent='전송 중...'; btn.disabled=true;
+  try {
+    await fetch(url,{method:'POST',mode:'no-cors',body:JSON.stringify(dataObj)});
+    btn.textContent='✓ 로컬 + 시트 저장 완료'; btn.style.background='var(--accent2)'; btn.style.color='#000';
+    setTimeout(()=>{btn.textContent='📊 저장하기';btn.style.background='#34a853';btn.style.color='';btn.disabled=false;},3000);
+  } catch(err) {
+    alert('구글 시트 전송 실패: '+err.message+'\n(로컬에는 저장되었습니다)');
+    btn.textContent='📊 저장하기'; btn.style.background='#34a853'; btn.disabled=false;
   }
 }
 
-// ── 과거 데이터 일괄 업로드 (한 번만 실행) ──────────────────
-function importHistoricalData() {
-  var history = [
-    {month:"2023년 11월",members:327,saves:398,pcPvSum:137415,pcPvAvg:6246,moPvSum:null,moPvAvg:null},
-    {month:"2023년 12월",members:375,saves:490,pcPvSum:168967,pcPvAvg:5451,moPvSum:null,moPvAvg:null},
-    {month:"2024년 1월", members:463,saves:633,pcPvSum:201764,pcPvAvg:6509,moPvSum:22784, moPvAvg:3255},
-    {month:"2024년 2월", members:520,saves:686,pcPvSum:178634,pcPvAvg:6160,moPvSum:102080,moPvAvg:3520},
-    {month:"2024년 3월", members:588,saves:795,pcPvSum:182572,pcPvAvg:5889,moPvSum:101507,moPvAvg:3274},
-    {month:"2024년 4월", members:490,saves:699,pcPvSum:165370,pcPvAvg:5512,moPvSum:88282, moPvAvg:2943},
-    {month:"2024년 5월", members:465,saves:669,pcPvSum:167182,pcPvAvg:5393,moPvSum:95202, moPvAvg:3071},
-    {month:"2024년 6월", members:397,saves:524,pcPvSum:150701,pcPvAvg:5023,moPvSum:91129, moPvAvg:3038},
-    {month:"2024년 7월", members:444,saves:648,pcPvSum:163040,pcPvAvg:5259,moPvSum:95943, moPvAvg:3095},
-    {month:"2024년 8월", members:493,saves:635,pcPvSum:152933,pcPvAvg:4933,moPvSum:97597, moPvAvg:3148},
-    {month:"2024년 9월", members:421,saves:539,pcPvSum:138059,pcPvAvg:4602,moPvSum:64076, moPvAvg:2136},
-    {month:"2024년 10월",members:424,saves:553,pcPvSum:148910,pcPvAvg:4804,moPvSum:58575, moPvAvg:1890},
-    {month:"2024년 11월",members:464,saves:605,pcPvSum:174034,pcPvAvg:5801,moPvSum:67497, moPvAvg:2250},
-    {month:"2024년 12월",members:428,saves:556,pcPvSum:149959,pcPvAvg:4837,moPvSum:59404, moPvAvg:1916},
-    {month:"2025년 1월", members:487,saves:643,pcPvSum:170317,pcPvAvg:5494,moPvSum:76718, moPvAvg:2475},
-    {month:"2025년 2월", members:537,saves:685,pcPvSum:194942,pcPvAvg:6962,moPvSum:72965, moPvAvg:2606},
-    {month:"2025년 3월", members:491,saves:659,pcPvSum:172669,pcPvAvg:5570,moPvSum:74943, moPvAvg:2418},
-    {month:"2025년 4월", members:429,saves:585,pcPvSum:161054,pcPvAvg:5368,moPvSum:67935, moPvAvg:2265},
-    {month:"2025년 5월", members:551,saves:742,pcPvSum:191548,pcPvAvg:6179,moPvSum:84725, moPvAvg:2733},
-    {month:"2025년 6월", members:469,saves:608,pcPvSum:194113,pcPvAvg:6470,moPvSum:109996,moPvAvg:3667},
-    {month:"2025년 7월", members:538,saves:723,pcPvSum:232484,pcPvAvg:7499,moPvSum:194853,moPvAvg:6286},
-    {month:"2025년 8월", members:463,saves:587,pcPvSum:236406,pcPvAvg:7626,moPvSum:243858,moPvAvg:7866},
-    {month:"2025년 9월", members:466,saves:632,pcPvSum:244205,pcPvAvg:8140,moPvSum:249445,moPvAvg:8315},
-    {month:"2025년 10월",members:405,saves:532,pcPvSum:260328,pcPvAvg:8398,moPvSum:269870,moPvAvg:8705},
-    {month:"2025년 11월",members:411,saves:550,pcPvSum:262146,pcPvAvg:8738,moPvSum:232676,moPvAvg:7756},
-    {month:"2025년 12월",members:378,saves:477,pcPvSum:244269,pcPvAvg:7880,moPvSum:245262,moPvAvg:7912},
-    {month:"2026년 1월", members:454,saves:605,pcPvSum:272233,pcPvAvg:8782,moPvSum:381680,moPvAvg:12312},
-    {month:"2026년 2월", members:385,saves:514,pcPvSum:272637,pcPvAvg:9737,moPvSum:269807,moPvAvg:9636},
-    {month:"2026년 3월", members:415,saves:581,pcPvSum:222959,pcPvAvg:7192,moPvSum:300948,moPvAvg:9708},
-  ];
-
-  var workSs = SpreadsheetApp.openById(WORK_SS_ID);
-  var now = new Date().toLocaleString("ko-KR");
-
-  // ① PV지표 탭
-  var pvSheet = workSs.getSheetByName("PV지표");
-  if (!pvSheet) pvSheet = workSs.insertSheet("PV지표");
-  pvSheet.clearContents();
-  pvSheet.clearFormats();
-  var pvHeader = pvSheet.getRange(1,1,1,8);
-  pvHeader.setValues([["월","PC PV 합계","PC PV 전월비교","PC PV 일평균","MO PV 합계","MO PV 전월비교","MO PV 일평균","기록일시"]]);
-  pvHeader.setBackground("#4f8cff"); pvHeader.setFontColor("#ffffff"); pvHeader.setFontWeight("bold");
-
-  var pvRows = [];
-  for (var i = 0; i < history.length; i++) {
-    var h = history[i];
-    var prev = i > 0 ? history[i-1] : null;
-    var pcDiff = (prev && prev.pcPvSum && h.pcPvSum) ? h.pcPvSum - prev.pcPvSum : "";
-    var moDiff = (prev && prev.moPvSum && h.moPvSum) ? h.moPvSum - prev.moPvSum : "";
-    pvRows.push([h.month, h.pcPvSum||"", pcDiff, h.pcPvAvg||"", h.moPvSum||"", moDiff, h.moPvAvg||"", now]);
-  }
-  pvSheet.getRange(2,1,pvRows.length,8).setValues(pvRows);
-  // 숫자 서식 (콤마)
-  pvSheet.getRange(2,2,pvRows.length,6).setNumberFormat("#,##0");
-
-  // ② VS저장지표 탭
-  var vsSheet = workSs.getSheetByName("VS저장지표");
-  if (!vsSheet) vsSheet = workSs.insertSheet("VS저장지표");
-  vsSheet.clearContents();
-  vsSheet.clearFormats();
-  var vsHeader = vsSheet.getRange(1,1,1,8);
-  vsHeader.setValues([["월","저장회원수","전월비교","증감(%)","저장건수","전월비교","증감(%)","기록일시"]]);
-  vsHeader.setBackground("#34a853"); vsHeader.setFontColor("#ffffff"); vsHeader.setFontWeight("bold");
-
-  var vsRows = [];
-  for (var j = 0; j < history.length; j++) {
-    var hv = history[j];
-    var pv = j > 0 ? history[j-1] : null;
-    var memDiff  = pv ? hv.members - pv.members : "";
-    var memPct   = (pv && pv.members) ? (hv.members - pv.members) / pv.members : "";
-    var saveDiff = pv ? hv.saves - pv.saves : "";
-    var savePct  = (pv && pv.saves) ? (hv.saves - pv.saves) / pv.saves : "";
-    vsRows.push([hv.month, hv.members, memDiff, memPct, hv.saves, saveDiff, savePct, now]);
-  }
-  vsSheet.getRange(2,1,vsRows.length,8).setValues(vsRows);
-  // 숫자 서식
-  vsSheet.getRange(2,2,vsRows.length,1).setNumberFormat("#,##0");  // 저장회원수
-  vsSheet.getRange(2,3,vsRows.length,1).setNumberFormat("#,##0");  // 전월비교
-  vsSheet.getRange(2,4,vsRows.length,1).setNumberFormat("0%");     // 증감%
-  vsSheet.getRange(2,5,vsRows.length,1).setNumberFormat("#,##0");  // 저장건수
-  vsSheet.getRange(2,6,vsRows.length,1).setNumberFormat("#,##0");  // 전월비교
-  vsSheet.getRange(2,7,vsRows.length,1).setNumberFormat("0%");     // 증감%
-
-  // ── 조건부 서식: 양수=빨간색, 음수=파란색 ──
-  // PV지표: C열(PC PV 전월비교), F열(MO PV 전월비교)
-  var pvRules = [];
-  var pvCompRanges = [pvSheet.getRange("C2:C1000"), pvSheet.getRange("F2:F1000")];
-  pvRules.push(SpreadsheetApp.newConditionalFormatRule()
-    .whenNumberGreaterThan(0).setFontColor("#FF0000").setRanges(pvCompRanges).build());
-  pvRules.push(SpreadsheetApp.newConditionalFormatRule()
-    .whenNumberLessThan(0).setFontColor("#4169E1").setRanges(pvCompRanges).build());
-  pvSheet.setConditionalFormatRules(pvRules);
-
-  // VS저장지표: C열(저장회원수 전월비교), D열(증감%), F열(저장건수 전월비교), G열(증감%)
-  var vsRules = [];
-  var vsCompRanges = [
-    vsSheet.getRange("C2:C1000"), vsSheet.getRange("D2:D1000"),
-    vsSheet.getRange("F2:F1000"), vsSheet.getRange("G2:G1000")
-  ];
-  vsRules.push(SpreadsheetApp.newConditionalFormatRule()
-    .whenNumberGreaterThan(0).setFontColor("#FF0000").setRanges(vsCompRanges).build());
-  vsRules.push(SpreadsheetApp.newConditionalFormatRule()
-    .whenNumberLessThan(0).setFontColor("#4169E1").setRanges(vsCompRanges).build());
-  vsSheet.setConditionalFormatRules(vsRules);
-
-  Logger.log("완료! " + pvRows.length + "개월치 데이터 입력됨");
+// ═══════════════════════════════════════
+// TAB2: HISTORY
+// ═══════════════════════════════════════
+async function hardRefreshHistory() {
+  localStorage.removeItem('vsSearchHistory');
+  document.getElementById('syncStatus').textContent = '동기화 중...';
+  document.getElementById('syncStatus').style.color = 'var(--sub)';
+  await renderHistory();
 }
+
+async function renderHistory() {
+  // 로딩 표시
+  document.getElementById('historyTable').innerHTML =
+    '<tr><td colspan="8" style="text-align:center;padding:28px;color:var(--sub)">⏳ 구글 시트에서 불러오는 중...</td></tr>';
+
+  // 구글 시트 있으면 동기화 먼저
+  const url = localStorage.getItem('appsScriptUrl');
+  const statusEl = document.getElementById('syncStatus');
+  if (url) {
+    const ok = await syncFromSheets();
+    if (ok) {
+      const synced = JSON.parse(localStorage.getItem('vsSearchHistory')||'[]');
+      const pvCount = synced.filter(d=>d.pvTotal!=null).length;
+      if (pvCount > 0) {
+        statusEl.textContent = `✅ 시트 동기화 완료 (PV ${pvCount}개월)`;
+        statusEl.style.color = 'var(--accent2)';
+      } else if (synced.length > 0) {
+        statusEl.textContent = `⚠️ 연결됨 — PV 데이터 없음 (${synced.length}건)`;
+        statusEl.style.color = 'var(--yellow)';
+      } else {
+        statusEl.textContent = '⚠️ 연결됨 — 반환 데이터 없음';
+        statusEl.style.color = 'var(--yellow)';
+      }
+    } else {
+      statusEl.textContent = '❌ 시트 연결 실패';
+      statusEl.style.color = 'var(--red)';
+      document.getElementById('historyTable').innerHTML =
+        '<tr><td colspan="8" style="text-align:center;padding:28px;color:var(--sub)">⚠️ 시트 연결 실패 — Apps Script URL 또는 배포 상태를 확인해주세요</td></tr>';
+      await new Promise(r => setTimeout(r, 1200));
+    }
+  } else {
+    statusEl.textContent = 'Apps Script URL 미설정';
+    statusEl.style.color = 'var(--sub)';
+  }
+
+  // "YYYY년 M월" 형식인 항목만 사용 (이상한 날짜 문자열 필터링)
+  const allData = getFullHistory();
+  const data = allData.filter(d => /^\d{4}년 \d+월$/.test(d.month));
+
+  let h=`<thead><tr><th>월</th><th>PV합계</th><th>PC PV</th><th>MO PV</th><th>PC일평균</th><th>MO일평균</th><th>저장회원수</th><th>저장건수</th></tr></thead><tbody>`;
+  [...data].reverse().forEach(row=>{
+    const dash='<span style="color:var(--border)">-</span>';
+    h+=`<tr class="${row.isUserSaved?'user-saved':''}">
+      <td>${row.month}</td>
+      <td>${row.pvTotal!=null?fmt(row.pvTotal):dash}</td>
+      <td>${row.pcPvSum!=null?fmt(row.pcPvSum):dash}</td>
+      <td>${row.moPvSum!=null?fmt(row.moPvSum):dash}</td>
+      <td>${row.pcPvAvg!=null?fmt(Math.round(row.pcPvAvg)):dash}</td>
+      <td>${row.moPvAvg!=null?fmt(Math.round(row.moPvAvg)):dash}</td>
+      <td>${row.members!=null?fmt(row.members):'-'}</td>
+      <td>${row.saves!=null?fmt(row.saves):'-'}</td>
+    </tr>`;
+  });
+  h+='</tbody>';
+  document.getElementById('historyTable').innerHTML=h;
+
+  // ── 차트 ──────────────────────────────────────────
+  const hasPv = data.some(d=>d.pvTotal!=null);
+  const mkLabel = d => {
+    const m=d.month.match(/(\d{4})년\s*(\d+)월/);
+    return m ? m[1].slice(2)+'.'+String(parseInt(m[2])).padStart(2,'0') : d.month;
+  };
+  const labels = data.map(mkLabel);
+
+  // ── PC PV vs MO PV 비교 차트 ──────────────────────
+  const hasPvComp = data.some(d=>d.pcPvSum!=null||d.moPvSum!=null);
+  if(pvCompChartInst) pvCompChartInst.destroy();
+  if(hasPvComp){
+    pvCompChartInst=new Chart(document.getElementById('pvCompChart'),{
+      type:'line',
+      data:{labels, datasets:[
+        {
+          label:'PC PV', yAxisID:'ypc',
+          data:data.map(d=>d.pcPvSum??null),
+          borderColor:'#60a5fa', backgroundColor:'rgba(96,165,250,.08)',
+          borderWidth:2.5, tension:.35,
+          pointRadius:0, pointHoverRadius:6, pointHoverBackgroundColor:'#60a5fa',
+          fill:false,
+        },
+        {
+          label:'MO PV', yAxisID:'ymo',
+          data:data.map(d=>d.moPvSum??null),
+          borderColor:'#f472b6', backgroundColor:'rgba(244,114,182,.08)',
+          borderWidth:2.5, tension:.35,
+          pointRadius:0, pointHoverRadius:6, pointHoverBackgroundColor:'#f472b6',
+          fill:false,
+        },
+      ]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        interaction:{mode:'index', intersect:false},
+        plugins:{
+          legend:{labels:{color:'#999',font:{size:12},boxWidth:28,usePointStyle:true,pointStyle:'line'}},
+          tooltip:{
+            backgroundColor:'#1a1a1d', borderColor:'#333', borderWidth:1,
+            titleColor:'#e4e4e7', bodyColor:'#aaa', padding:10,
+            callbacks:{
+              title:items=>items[0]?.label?'📅 '+items[0].label:'',
+              label:ctx=>ctx.raw==null?null:` ${ctx.dataset.label}: ${ctx.raw.toLocaleString()}`,
+            }
+          }
+        },
+        scales:{
+          x:{
+            ticks:{color:'#555',font:{size:10},maxTicksLimit:18,maxRotation:0,autoSkip:true,autoSkipPadding:10},
+            grid:{color:'#1a1a1d'},
+          },
+          ypc:{
+            position:'left',
+            ticks:{color:'#60a5fa',font:{size:10},callback:v=>(v/1000).toFixed(0)+'k'},
+            grid:{color:'#1e1e22'},
+            title:{display:true,text:'PC PV',color:'#60a5fa',font:{size:10}},
+          },
+          ymo:{
+            position:'right',
+            ticks:{color:'#f472b6',font:{size:10},callback:v=>(v/1000).toFixed(0)+'k'},
+            grid:{drawOnChartArea:false},
+            title:{display:true,text:'MO PV',color:'#f472b6',font:{size:10}},
+          },
+        }
+      }
+    });
+  }
+
+  if(trendChartInst) trendChartInst.destroy();
+  trendChartInst=new Chart(document.getElementById('trendChart'),{
+    type:'line',
+    data:{labels, datasets:[
+      {
+        label:'저장 회원수', yAxisID:'y',
+        data:data.map(d=>d.members??null),
+        borderColor:'#36d399', backgroundColor:'rgba(54,211,153,.08)',
+        borderWidth:2.5, tension:.35,
+        pointRadius:0, pointHoverRadius:6, pointHoverBackgroundColor:'#36d399',
+        fill:false,
+      },
+      {
+        label:'저장건수', yAxisID:'y',
+        data:data.map(d=>d.saves??null),
+        borderColor:'#4f8cff', backgroundColor:'rgba(79,140,255,.08)',
+        borderWidth:2.5, tension:.35,
+        pointRadius:0, pointHoverRadius:6, pointHoverBackgroundColor:'#4f8cff',
+        fill:false,
+      },
+      ...(hasPv ? [{
+        label:'PV합계', yAxisID:'y2',
+        data:data.map(d=>d.pvTotal??null),
+        borderColor:'#ff9f43', backgroundColor:'rgba(255,159,67,.05)',
+        borderWidth:2, tension:.35, borderDash:[6,3],
+        pointRadius:0, pointHoverRadius:5, pointHoverBackgroundColor:'#ff9f43',
+        fill:false,
+      }] : []),
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index', intersect:false},
+      plugins:{
+        legend:{
+          labels:{
+            color:'#999', font:{size:12}, boxWidth:28,
+            usePointStyle:true, pointStyle:'line',
+          }
+        },
+        tooltip:{
+          backgroundColor:'#1a1a1d', borderColor:'#333', borderWidth:1,
+          titleColor:'#e4e4e7', bodyColor:'#aaa', padding:10,
+          callbacks:{
+            title: items => items[0]?.label ? '📅 '+items[0].label : '',
+            label: ctx => {
+              if(ctx.raw==null) return null;
+              const units=['명','건',''];
+              const u = ctx.datasetIndex < 2 ? units[ctx.datasetIndex] : '';
+              const prefix = ctx.datasetIndex===2 ? '' : '';
+              return ` ${ctx.dataset.label}: ${ctx.raw.toLocaleString()}${u}`;
+            }
+          }
+        }
+      },
+      scales:{
+        x:{
+          ticks:{
+            color:'#555', font:{size:10},
+            maxTicksLimit:18, maxRotation:0, autoSkip:true, autoSkipPadding:10,
+          },
+          grid:{color:'#1a1a1d'},
+        },
+        y:{
+          position:'left',
+          ticks:{color:'#36d399', font:{size:10}},
+          grid:{color:'#1e1e22'},
+          title:{display:true, text:'회원수 · 건수', color:'#555', font:{size:10}},
+        },
+        ...(hasPv ? {y2:{
+          position:'right',
+          ticks:{color:'#ff9f43', font:{size:10}, callback:v=>(v/1000).toFixed(0)+'k'},
+          grid:{drawOnChartArea:false},
+          title:{display:true, text:'PV 합계', color:'#ff9f43', font:{size:10}},
+        }} : {}),
+      }
+    }
+  });
+}
+
+// ═══════════════════════════════════════
+// TAB3: ANALYSIS
+// ═══════════════════════════════════════
+async function initAnalysis() {
+  // 구글 시트 있으면 동기화 먼저 (드롭다운에 최신 월 반영)
+  const url = localStorage.getItem('appsScriptUrl');
+  if (url) await syncFromSheets();
+
+  const data=getFullHistory();
+  const months=data.map(d=>d.month);
+  const prevSel=document.getElementById('prevMonthSel'), curSel=document.getElementById('curMonthSel');
+  const wasPrev=prevSel.value, wasCur=curSel.value;
+
+  prevSel.innerHTML=months.map(m=>`<option value="${m}">${m}</option>`).join('');
+  curSel.innerHTML=months.map(m=>`<option value="${m}">${m}</option>`).join('');
+
+  // 오늘 날짜 기준 자동 선택 (첫 진입 시에만)
+  if (!wasPrev && !wasCur) {
+    const now = new Date();
+    const thisMonth = `${now.getFullYear()}년 ${now.getMonth()+1}월`;
+    const prevMonth = now.getMonth()===0
+      ? `${now.getFullYear()-1}년 12월`
+      : `${now.getFullYear()}년 ${now.getMonth()}월`;
+
+    curSel.value  = months.includes(thisMonth) ? thisMonth : months[months.length-1];
+    const curIdx  = months.indexOf(curSel.value);
+    prevSel.value = curIdx>0 ? months[curIdx-1] : months[0];
+  } else {
+    prevSel.value = (wasPrev&&months.includes(wasPrev)) ? wasPrev : (months.length>=2?months[months.length-2]:months[0]);
+    curSel.value  = (wasCur&&months.includes(wasCur))   ? wasCur  : months[months.length-1];
+  }
+
+  const savedKey=localStorage.getItem('anthropicApiKey');
+  if(savedKey) document.getElementById('apiKeyInput').value=savedKey;
+
+  renderAnalysis();
+}
+
+function renderAnalysis() {
+  const data=getFullHistory();
+  const prev=data.find(d=>d.month===document.getElementById('prevMonthSel').value);
+  const cur =data.find(d=>d.month===document.getElementById('curMonthSel').value);
+
+  if(!prev||!cur||prev.month===cur.month){
+    document.getElementById('kpiCards').innerHTML='<p style="color:var(--sub);font-size:13px">두 달을 다르게 선택해주세요.</p>';
+    return;
+  }
+
+  const kpis=[
+    {label:'PV 합계', pv:prev.pvTotal, cv:cur.pvTotal},
+    {label:'PC PV',   pv:prev.pcPvSum, cv:cur.pcPvSum},
+    {label:'MO PV',   pv:prev.moPvSum, cv:cur.moPvSum},
+    {label:'저장 회원수', pv:prev.members, cv:cur.members, unit:'명'},
+    {label:'저장건수',    pv:prev.saves,   cv:cur.saves,   unit:'건'},
+  ];
+
+  document.getElementById('kpiCards').innerHTML=kpis.map(k=>{
+    const ok=k.pv!=null&&k.cv!=null;
+    const delta=ok?k.cv-k.pv:null, pct=ok?pctStr(k.cv,k.pv):null, cls=delta!=null?(delta>=0?'green':'red'):'';
+    return `<div class="kpi-card">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-prev">${k.pv!=null?fmt(k.pv)+(k.unit||''):'-'}</div>
+      <div class="kpi-arrow">↓</div>
+      <div class="kpi-cur">${k.cv!=null?fmt(k.cv):'-'}${k.cv!=null&&k.unit?`<span style="font-size:12px;font-weight:400">${k.unit}</span>`:''}</div>
+      <div class="kpi-delta ${cls}">${delta!=null?signFmt(delta):'-'}</div>
+      <div class="kpi-pct">${pct??''}</div>
+    </div>`;
+  }).join('');
+
+  const mn=getMonthNum(cur.month), pm=getMonthNum(prev.month);
+  let hints='';
+  if(SEASONAL_HINTS[pm]||SEASONAL_HINTS[mn]){
+    hints=`<div class="hint-box"><strong style="color:var(--text)">📅 계절 힌트</strong><br><br>`;
+    if(pm!==mn&&SEASONAL_HINTS[pm]) hints+=`<strong>${prev.month}:</strong> ${SEASONAL_HINTS[pm]}<br><br>`;
+    if(SEASONAL_HINTS[mn]) hints+=`<strong>${cur.month}:</strong> ${SEASONAL_HINTS[mn]}`;
+    hints+='</div>';
+  }
+  document.getElementById('seasonalHints').innerHTML=hints;
+  const r=document.getElementById('aiResult'); r.classList.add('hidden'); r.innerHTML=''; r.style.borderLeftColor='var(--accent)';
+}
+
+function saveApiKey() {
+  const key=document.getElementById('apiKeyInput').value.trim();
+  if(!key){alert('API Key를 입력해주세요.');return;}
+  localStorage.setItem('anthropicApiKey',key);
+  const btn=event.target; btn.textContent='✓ 저장됨';
+  setTimeout(()=>btn.textContent='저장',2000);
+}
+
+function buildPrompt(prev,cur) {
+  const ln=(l,v,u='')=>`  ${l}: ${v!=null?fmt(v)+u:'데이터 없음'}`;
+  return `당신은 VS검색 서비스의 월별 지표를 분석하는 전문가입니다.
+
+[${prev.month}]
+${ln('PV 합계',prev.pvTotal)} / PC: ${prev.pcPvSum!=null?fmt(prev.pcPvSum):'-'} / MO: ${prev.moPvSum!=null?fmt(prev.moPvSum):'-'}
+${ln('저장 회원수',prev.members,'명')} / ${ln('저장건수',prev.saves,'건')}
+
+[${cur.month}]
+${ln('PV 합계',cur.pvTotal)} / PC: ${cur.pcPvSum!=null?fmt(cur.pcPvSum):'-'} / MO: ${cur.moPvSum!=null?fmt(cur.moPvSum):'-'}
+${ln('저장 회원수',cur.members,'명')} / ${ln('저장건수',cur.saves,'건')}
+
+두 달의 지표를 비교하여 아래 관점에서 4~6줄로 간결하게 분석해주세요:
+1. 주요 지표 변화와 가능한 원인 (한국 계절/이벤트 — 신학기·설연휴·추석·여름방학 등)
+2. PC vs 모바일 트래픽 패턴 변화의 의미
+3. PV 대비 저장 회원수·건수 비율로 본 품질 평가 (봇 유입 가능성, 전환율 변화)
+4. 다음 달 주목할 포인트나 대응 제안
+
+마크다운 없이 일반 텍스트로 자연스럽게 작성해주세요.`;
+}
+
+async function runAIAnalysis() {
+  const apiKey=localStorage.getItem('anthropicApiKey')||document.getElementById('apiKeyInput').value.trim();
+  if(!apiKey){alert('Anthropic API Key를 입력하고 저장해주세요.\nAPI 없이는 아래 계절 힌트를 참고하세요.');return;}
+
+  const data=getFullHistory();
+  const prev=data.find(d=>d.month===document.getElementById('prevMonthSel').value);
+  const cur =data.find(d=>d.month===document.getElementById('curMonthSel').value);
+  if(!prev||!cur) return;
+
+  const aiResult=document.getElementById('aiResult'), aiBtn=document.getElementById('aiBtn');
+  aiResult.className='ai-box loading'; aiResult.textContent='분석 중...'; aiResult.classList.remove('hidden');
+  aiBtn.disabled=true; aiBtn.textContent='분석 중...';
+
+  try {
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'x-api-key':apiKey,
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-calls':'true',
+      },
+      body:JSON.stringify({model:'claude-haiku-4-5',max_tokens:700,messages:[{role:'user',content:buildPrompt(prev,cur)}]}),
+    });
+    if(!resp.ok){const e=await resp.json().catch(()=>({}));throw new Error(e?.error?.message||`HTTP ${resp.status}`);}
+    const result=await resp.json();
+    aiResult.className='ai-box'; aiResult.textContent=result.content[0].text;
+  } catch(err) {
+    aiResult.className='ai-box'; aiResult.style.borderLeftColor='var(--red)';
+    aiResult.textContent=`❌ 오류: ${err.message}`;
+  } finally {
+    aiBtn.disabled=false; aiBtn.textContent='✨ AI 분석 실행';
+  }
+}
+
+// ═══════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════
+function saveScriptUrl() {
+  const url = document.getElementById('scriptUrl').value.trim();
+  if (!url) { alert('URL을 입력해주세요.'); return; }
+  localStorage.setItem('appsScriptUrl', url);
+  const status = document.getElementById('scriptUrlStatus');
+  status.textContent = '✓ 저장됨 — 이제 히스토리 탭에서 구글 시트 데이터를 불러옵니다';
+  status.style.color = 'var(--accent2)';
+  setTimeout(() => { status.textContent = ''; }, 4000);
+}
+
+window.addEventListener('load', () => {
+  const u = localStorage.getItem('appsScriptUrl');
+  if (u) {
+    document.getElementById('scriptUrl').value = u;
+    document.getElementById('scriptUrlStatus').textContent = '✓ 연결됨: ' + u.slice(0, 60) + '...';
+    document.getElementById('scriptUrlStatus').style.color = 'var(--accent2)';
+  }
+});
+render();
+</script>
+</body>
+</html>
