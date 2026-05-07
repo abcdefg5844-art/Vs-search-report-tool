@@ -1062,7 +1062,10 @@ ${ln('저장 회원수',cur.members,'명')} / ${ln('저장건수',cur.saves,'건
 
 async function runAIAnalysis() {
   const apiKey=localStorage.getItem('anthropicApiKey')||document.getElementById('apiKeyInput').value.trim();
-  if(!apiKey){alert('Anthropic API Key를 입력하고 저장해주세요.\nAPI 없이는 아래 계절 힌트를 참고하세요.');return;}
+  if(!apiKey){alert('Anthropic API Key를 입력하고 저장해주세요.');return;}
+
+  const appsScriptUrl=localStorage.getItem('appsScriptUrl');
+  if(!appsScriptUrl){alert('Tab 1에서 Apps Script URL을 먼저 설정해주세요.');return;}
 
   const data=getFullHistory();
   const prev=data.find(d=>d.month===document.getElementById('prevMonthSel').value);
@@ -1074,19 +1077,12 @@ async function runAIAnalysis() {
   aiBtn.disabled=true; aiBtn.textContent='분석 중...';
 
   try {
-    const resp=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{
-        'Content-Type':'application/json',
-        'x-api-key':apiKey,
-        'anthropic-version':'2023-06-01',
-        'anthropic-dangerous-direct-browser-calls':'true',
-      },
-      body:JSON.stringify({model:'claude-haiku-4-5',max_tokens:700,messages:[{role:'user',content:buildPrompt(prev,cur)}]}),
-    });
-    if(!resp.ok){const e=await resp.json().catch(()=>({}));throw new Error(e?.error?.message||`HTTP ${resp.status}`);}
-    const result=await resp.json();
-    aiResult.className='ai-box'; aiResult.textContent=result.content[0].text;
+    // Apps Script를 통해 Anthropic API 호출 (CORS 우회)
+    const prompt=buildPrompt(prev,cur);
+    const url=appsScriptUrl+'&type=ai&key='+encodeURIComponent(apiKey)+'&prompt='+encodeURIComponent(prompt);
+    const result=await fetchJSONP(url);
+    if(!result.ok) throw new Error(result.error||'알 수 없는 오류');
+    aiResult.className='ai-box'; aiResult.textContent=result.text;
   } catch(err) {
     aiResult.className='ai-box'; aiResult.style.borderLeftColor='var(--red)';
     aiResult.textContent=`❌ 오류: ${err.message}`;
