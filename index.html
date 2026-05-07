@@ -1079,7 +1079,7 @@ async function runAIAnalysis() {
   try {
     // Apps Script를 통해 Anthropic API 호출 (CORS 우회)
     const prompt=buildPrompt(prev,cur);
-    const url=appsScriptUrl+'&type=ai&key='+encodeURIComponent(apiKey)+'&prompt='+encodeURIComponent(prompt);
+    const url=appsScriptUrl+(appsScriptUrl.includes('?')?'&':'?')+'type=ai&key='+encodeURIComponent(apiKey)+'&prompt='+encodeURIComponent(prompt);
     const result=await fetchJSONP(url);
     if(!result.ok) throw new Error(result.error||'알 수 없는 오류');
     aiResult.className='ai-box'; aiResult.textContent=result.text;
