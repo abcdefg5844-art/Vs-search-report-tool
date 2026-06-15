@@ -522,9 +522,14 @@ function parsePasted(text) {
 }
 
 function getPrevMS() {
-  if (!prevPv) return HISTORY[HISTORY.length-1];
-  const key = prevPv.monthLabel.slice(0,4)+"-"+parseInt(prevPv.monthLabel.slice(5,7))+"월";
-  return HISTORY.find(h=>h.month===key)||HISTORY[HISTORY.length-1];
+  const fh = getFullHistory();
+  if (prevPv && prevPv.monthLabel) {
+    const want = toMonthStr(prevPv.monthLabel); // 전월 파일 기준 "YYYY년 M월"
+    const hit = fh.find(h => normalizeMonth(h.month) === want);
+    if (hit) return hit;
+    return { month: want, members: null, saves: null }; // 데이터 없어도 라벨은 정확히
+  }
+  return fh[fh.length-1] || HISTORY[HISTORY.length-1];
 }
 
 // ═══════════════════════════════════════
@@ -630,7 +635,7 @@ function render() {
   } else { sumEl.classList.add("hidden"); }
 
   const mT=membersData?.total, sT=savesData?.total;
-  const mD=mT!=null?mT-prevMS.members:null, sD=sT!=null?sT-prevMS.saves:null;
+  const mD=(mT!=null&&prevMS.members!=null)?mT-prevMS.members:null, sD=(sT!=null&&prevMS.saves!=null)?sT-prevMS.saves:null;
   renderPasteResult("membersResult",membersData,mD,`전월(${prevMS.members})`);
   renderPasteResult("savesResult",savesData,sD,`전월(${prevMS.saves})`);
   document.getElementById("prevRefLabel").textContent=`(전월 기준: ${normalizeMonth(prevMS.month)})`;
@@ -680,7 +685,7 @@ function copyReport() {
   const pL=prevPv?toMonthStr(prevPv.monthLabel):"전월", cL=toMonthStr(curPv.monthLabel);
   const pcD=prevPv?curPv.pcPvSum-prevPv.pcPvSum:null, moD=prevPv?curPv.moPvSum-prevPv.moPvSum:null;
   const mT=membersData?.total, sT=savesData?.total;
-  const mD=mT!=null?mT-prevMS.members:null, sD=sT!=null?sT-prevMS.saves:null;
+  const mD=(mT!=null&&prevMS.members!=null)?mT-prevMS.members:null, sD=(sT!=null&&prevMS.saves!=null)?sT-prevMS.saves:null;
 
   let r="### 1. VS검색페이지 PV (PC/MO 구분, uxlog 기준)\n\n";
   r+="| 날짜 | PV 합계 | PC PV 합계 | PC PV 합계 전월비교 | PC PV 일평균 | MO PV 합계 | MO PV 합계 전월비교 | MO PV 일평균 |\n";
