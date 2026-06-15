@@ -467,7 +467,17 @@ function processPvData(rows) {
   const dr = rows.filter(r => r[0]&&r[1]&&typeof r[2]==="number");
   let pcT=0, moT=0; const days=new Set(), daily={};
   dr.forEach(r => {
-    const d = r[0] instanceof Date ? r[0].toISOString().slice(0,10) : String(r[0]).slice(0,10);
+    const fmtLocal = dt => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+    let d;
+    if (typeof r[0]==="number") {
+      const dc = XLSX.SSF.parse_date_code(r[0]);  // 엑셀 날짜숫자 → 타임존 영향 없이 연/월/일 추출
+      d = dc ? `${dc.y}-${String(dc.m).padStart(2,"0")}-${String(dc.d).padStart(2,"0")}` : "";
+    } else if (r[0] instanceof Date) {
+      d = fmtLocal(r[0]);
+    } else {
+      d = String(r[0]).slice(0,10);
+    }
+    if (!d) return;
     const p = String(r[1]).toLowerCase(), c = Number(r[2]);
     days.add(d);
     if (!daily[d]) daily[d]={date:d,pc:0,mo:0};
